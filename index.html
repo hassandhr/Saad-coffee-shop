@@ -14,6 +14,7 @@
 <title>Kiosk POS</title>
 <style>
 html{color-scheme:light dark}
+[hidden]{display:none!important}
 body{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
 
 /* Layout: one-screen register. Item grid on the left, running order on the right; Stock, Daily Report and Items are separate tabs. */
@@ -173,8 +174,8 @@ tfoot td{font-weight:800;border-bottom:0}
 <script>
 
 var KEY='kioskpos_v1';
-var S={store:'My Kiosk',rate:89500,cats:['Drinks','Cigarettes','Purchases'],items:[],sales:[],counter:0,purchases:[],pcounter:0};
-var cart={},cartOrder=[]; var curCat=null; var reportDate=today(); var curView='sale';
+var S={store:'My Kiosk',rate:89500,cats:['Drinks','Cigarettes','Purchases'],items:[],sales:[],counter:0,purchases:[],pcounter:0,days:[],units:['pcs','kg','g','L','ml']};
+var cart={},cartOrder=[]; var curCat=null; var reportSel='open'; var curView='sale';
 var storageOK=true;
 
 function load(){try{var r=localStorage.getItem(KEY);if(r){var d=JSON.parse(r);for(var k in d)S[k]=d[k];}}catch(e){storageOK=false}}
@@ -196,6 +197,7 @@ function initDb(){
 }
 function migrate(){
  if(!S.purchases)S.purchases=[]; if(!S.pcounter)S.pcounter=0;
+ if(!S.days)S.days=[]; if(!S.units||!S.units.length)S.units=['pcs','kg','g','L','ml'];
  var extra=[];
  S.items.forEach(function(i){
   if(i.track===undefined)i.track=false;if(i.stock===undefined)i.stock=0;if(i.cost===undefined)i.cost=0;if(!i.unit)i.unit='pcs';if(!i.recipe)i.recipe=[];if(i.noSale===undefined)i.noSale=false;
@@ -210,9 +212,10 @@ function migrate(){
    }
    else i.kind='sale';
   }
-  if(i.kind==='stock'){i.track=true;if(i.supplier===undefined)i.supplier=''}
+  if(i.kind==='stock'){i.track=true;if(i.supplier===undefined)i.supplier='';if(!i.buyUnit)i.buyUnit=i.unit;if(!(i.factor>0))i.factor=1}
  });
  extra.forEach(function(x){S.items.push(x)});
+ S.items.forEach(function(i){if(i.kind==='stock'){[i.unit,i.buyUnit].forEach(function(u){if(u&&S.units.indexOf(u)<0)S.units.push(u)})}});
 }
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
@@ -232,6 +235,11 @@ function toast(m){var t=document.getElementById('toast');t.textContent=m;t.style
 function $(id){return document.getElementById(id)}
 function findItem(id){for(var i=0;i<S.items.length;i++)if(S.items[i].id===id)return S.items[i];return null}
 function isBuyable(i){return i.kind==='stock'}
+function fct(i){return i.factor>0?i.factor:1}
+function buyU(i){return i.buyUnit||i.unit}
+function stockText(i){var f=fct(i);if(buyU(i)===i.unit&&f===1)return fmtN(i.stock)+' '+i.unit;return fmtN(i.stock/f)+' '+buyU(i)+' ('+fmtN(i.stock)+' '+i.unit+')'}
+function suggestFactor(b,u){if(b===u)return 1;var t={'l>ml':1000,'kg>g':1000,'l>cl':100,'cl>ml':10,'m>cm':100};return t[(b+'>'+u).toLowerCase()]||null}
+function unitOptHtml(sel){var l=S.units.slice();if(sel&&l.indexOf(sel)<0)l.push(sel);return l.map(function(u){return '<option value="'+esc(u)+'"'+(u===sel?' selected':'')+'>'+esc(u)+'</option>'}).join('')}
 function itemCost(i){
  if(i.recipe&&i.recipe.length){var t=0;i.recipe.forEach(function(r){var g=findItem(r.itemId);if(g)t+=r.qty*(g.cost||0)});return t}
  return i.cost||0;
@@ -375,7 +383,7 @@ function renderStock(){
  else{
   h+='<div class="tbl"><table><thead><tr><th>Item</th><th>Supplier</th><th class="r">In stock</th><th class="r">Cost each</th><th></th></tr></thead><tbody>';
   stock.forEach(function(i){
-   h+='<tr><td>'+esc(i.name)+'</td><td>'+(i.supplier?esc(i.supplier):'<span style="color:var(--mute)">-</span>')+'</td><td class="r"><span'+(i.stock<=0?' class="neg"':'')+'>'+fmtN(i.stock)+' '+esc(i.unit)+'</span></td><td class="r">'+(i.cost>0?money(i.cost)+'/'+esc(i.unit):'-')+'</td><td class="r"><button class="btn sec sm" data-e="'+i.id+'">Edit</button></td></tr>';
+   h+='<tr><td>'+esc(i.name)+'</td><td>'+(i.supplier?esc(i.supplier):'<span style="color:var(--mute)">-</span>')+'</td><td class="r"><span'+(i.stock<=0?' class="neg"':'')+'>'+esc(stockText(i))+'</span></td><td class="r">'+(i.cost>0?money(i.cost*fct(i))+'/'+esc(buyU(i)):'-')+'</td><td class="r"><button class="btn sec sm" data-e="'+i.id+'">Edit</button></td></tr>';
   });
   h+='</tbody></table></div><div class="note">Each sale takes the recipe amounts out of these quantities. Cost each is the average of your purchase invoices. Set up what you sell, and its recipe, in the Items tab.</div>';
  }
@@ -396,22 +404,49 @@ function renderStock(){
 }
 function editStock(id){
  var it=id?findItem(id):null;
- var units=['kg','pcs','ml'];if(it&&units.indexOf(it.unit)<0)units.push(it.unit);
- var unit=it?it.unit:'kg';
+ var buy=it?buyU(it):'kg',unit=it?it.unit:'kg',fac=it?fct(it):1;
+ var stockTouched=false,costTouched=false;
  openModal('<h3>'+(it?'Edit stock item':'New stock item')+'</h3>'+
- '<div class="f"><label for="sName">Name</label><input id="sName" value="'+esc(it?it.name:'')+'" placeholder="e.g. Coffee beans"></div>'+
+ '<div class="f"><label for="sName">Name</label><input id="sName" value="'+esc(it?it.name:'')+'" placeholder="e.g. Water"></div>'+
  '<div class="f"><label for="sSup">Supplier (optional)</label><input id="sSup" value="'+esc(it?(it.supplier||''):'')+'" placeholder="e.g. Al Amal Trading"></div>'+
- '<div class="row" style="margin-bottom:12px"><div class="f" style="flex:1;min-width:110px;margin:0"><label for="sUnit">Unit</label><select id="sUnit">'+units.map(function(u){return '<option value="'+esc(u)+'"'+(u===unit?' selected':'')+'>'+esc(u)+'</option>'}).join('')+'</select></div>'+
- '<div class="f" style="flex:1;min-width:110px;margin:0"><label for="sStock">In stock now</label><input id="sStock" type="number" inputmode="decimal" step="any" value="'+(it?fmtN(it.stock):'0')+'"></div>'+
- '<div class="f" style="flex:1;min-width:110px;margin:0"><label for="sCost">Cost each ($)</label><input id="sCost" type="number" inputmode="decimal" step="any" min="0" value="'+(it&&it.cost>0?it.cost:'')+'" placeholder="optional"></div></div>'+
- '<div class="note" style="margin:0 0 14px">To add bought stock, use a purchase invoice. Change “In stock now” here only to correct a count.</div>'+
- '<div class="row"><button class="btn" id="sSave" style="flex:1">Save</button>'+(it?'<button class="btn bad" id="sDel">Delete</button>':'')+'<button class="btn sec" id="sCancel">Cancel</button></div>');
+ '<div class="row" style="margin-bottom:12px"><div class="f" style="flex:1;min-width:130px;margin:0"><label for="sBuy">Buying unit</label><select id="sBuy">'+unitOptHtml(buy)+'</select></div>'+
+ '<div class="f" style="flex:1;min-width:130px;margin:0"><label for="sUnit">Recipe unit</label><select id="sUnit">'+unitOptHtml(unit)+'</select></div></div>'+
+ '<div class="f" id="sConv"><label for="sFac"><span id="sConvL"></span></label><input id="sFac" type="number" inputmode="decimal" step="any" min="0" value="'+fac+'"></div>'+
+ '<div class="row" style="margin-bottom:12px"><div class="f" style="flex:1;min-width:130px;margin:0"><label for="sStock"><span id="sStockL"></span></label><input id="sStock" type="number" inputmode="decimal" step="any" value="'+(it?fmtN(it.stock/fac):'0')+'"></div>'+
+ '<div class="f" style="flex:1;min-width:130px;margin:0"><label for="sCost"><span id="sCostL"></span></label><input id="sCost" type="number" inputmode="decimal" step="any" min="0" value="'+(it&&it.cost>0?r4(it.cost*fac):'')+'" placeholder="optional"></div></div>'+
+ '<div class="note" style="margin:0 0 14px">You buy this item in the buying unit and use it in recipes in the recipe unit, for example buy in L and use in ml. To add bought stock, use a purchase invoice. Change “In stock now” here only to correct a count.</div>'+
+ '<div class="row"><button class="btn" id="sSave" style="flex:1">Save</button>'+(it?'<button class="btn bad" id="sDel">Delete</button>':'')+'<button class="btn sec" id="sCancel">Cancel</button></div>',true);
+ function labels(){
+  var b=$('sBuy').value,u=$('sUnit').value;
+  $('sConv').hidden=(b===u);
+  $('sConvL').textContent='1 '+b+' = how many '+u+'?';
+  $('sStockL').textContent='In stock now (in '+b+')';
+  $('sCostL').textContent='Cost per '+b+' ($)';
+ }
+ function unitsChanged(){
+  var b=$('sBuy').value,u=$('sUnit').value;
+  if(b===u)$('sFac').value=1;
+  else{var sg=suggestFactor(b,u);if(sg)$('sFac').value=sg;else if(num($('sFac').value)===1)$('sFac').value=''}
+  labels();
+ }
+ labels();
+ $('sBuy').onchange=unitsChanged;$('sUnit').onchange=unitsChanged;
+ $('sStock').oninput=function(){stockTouched=true};
+ $('sCost').oninput=function(){costTouched=true};
  $('sCancel').onclick=closeModal;
  $('sSave').onclick=function(){
-  var n=$('sName').value.trim();
+  var n=$('sName').value.trim(),b=$('sBuy').value,u=$('sUnit').value,f=(b===u)?1:num($('sFac').value);
   if(!n){toast('Enter a name');return}
-  var f={name:n,supplier:$('sSup').value.trim(),unit:$('sUnit').value,stock:num($('sStock').value),cost:num($('sCost').value),kind:'stock',track:true,price:0,cat:'',recipe:[],noSale:false};
-  if(it){for(var k in f)it[k]=f[k]}else{f.id=uid();S.items.push(f)}
+  if(!(f>0)){toast('Enter how many '+u+' are in 1 '+b);return}
+  var unitChanged=!!(it&&it.unit!==u);
+  if(unitChanged){
+   var usedBy=S.items.filter(function(x){return (x.recipe||[]).some(function(r){return r.itemId===it.id})})[0];
+   if(usedBy){toast(it.name+' is used in the recipe of '+usedBy.name+'. Remove it there before changing its recipe unit.');return}
+  }
+  var f2={name:n,supplier:$('sSup').value.trim(),buyUnit:b,unit:u,factor:f,kind:'stock',track:true,price:0,cat:'',recipe:[],noSale:false};
+  if(!it||stockTouched||unitChanged)f2.stock=Math.round(num($('sStock').value)*f*1000)/1000;
+  if(!it||costTouched||unitChanged)f2.cost=Math.round(num($('sCost').value)/f*1e8)/1e8;
+  if(it){for(var k in f2)it[k]=f2[k]}else{f2.id=uid();S.items.push(f2)}
   save();closeModal();refresh();
  };
  if(it)$('sDel').onclick=function(){
@@ -421,12 +456,19 @@ function editStock(id){
  };
 }
 var pDraft=null;
-function newLine(){var it=S.items.filter(isBuyable)[0];return {itemId:it?it.id:'',u:it?it.unit:'pcs',qty:'',unit:'',total:''}}
+function newLine(){var it=S.items.filter(isBuyable)[0];return {itemId:it?it.id:'',u:it?buyU(it):'pcs',qty:'',unit:'',total:''}}
 function unitOpts(l){
- var base=['kg','pcs','ml'],it=findItem(l.itemId);
- if(it&&base.indexOf(it.unit)<0)base.push(it.unit);
- if(l.u&&base.indexOf(l.u)<0)base.push(l.u);
- return base.map(function(u){return '<option value="'+esc(u)+'"'+(u===l.u?' selected':'')+'>'+esc(u)+'</option>'}).join('');
+ var it=findItem(l.itemId),o=[];
+ if(it){o.push(buyU(it));if(it.unit!==buyU(it))o.push(it.unit)}
+ if(l.u&&o.indexOf(l.u)<0)o.push(l.u);
+ return o.map(function(u){return '<option value="'+esc(u)+'"'+(u===l.u?' selected':'')+'>'+esc(u)+'</option>'}).join('');
+}
+function baseQtyOf(it,u,q){return u===it.unit?q:q*fct(it)}
+function convTxt(l){
+ var it=findItem(l.itemId),q=num(l.qty);
+ if(!it||q<=0)return '';
+ var bq=baseQtyOf(it,l.u,q);
+ return bq!==q?'= '+fmtN(bq)+' '+it.unit+' added to stock':'';
 }
 function purchaseDialog(){
  if(!S.items.filter(isBuyable).length){toast('Add items first in the Items tab');return}
@@ -434,7 +476,7 @@ function purchaseDialog(){
  renderPurchase();
 }
 function itemOptions(sel){
- return S.items.filter(isBuyable).sort(function(a,b){return a.name.localeCompare(b.name)}).map(function(i){return '<option value="'+i.id+'"'+(i.id===sel?' selected':'')+'>'+esc(i.name)+(i.supplier?' · '+esc(i.supplier):'')+' ('+esc(i.unit)+')</option>'}).join('');
+ return S.items.filter(isBuyable).sort(function(a,b){return a.name.localeCompare(b.name)}).map(function(i){return '<option value="'+i.id+'"'+(i.id===sel?' selected':'')+'>'+esc(i.name)+(i.supplier?' · '+esc(i.supplier):'')+' ('+esc(buyU(i))+')</option>'}).join('');
 }
 function renderPurchase(){
  var d=pDraft;
@@ -443,7 +485,7 @@ function renderPurchase(){
   h+='<div class="pline"><div class="row"><select id="pItem'+i+'">'+itemOptions(l.itemId)+'</select><select id="pun'+i+'" aria-label="Unit" style="flex:none;width:92px">'+unitOpts(l)+'</select>'+(d.lines.length>1?'<button class="btn bad sm" data-pdel="'+i+'">✕</button>':'')+'</div>'+
   '<div class="pgrid"><div class="f"><label for="pq'+i+'">Quantity <span id="pu'+i+'"></span></label><input id="pq'+i+'" type="number" inputmode="decimal" step="any" min="0" value="'+esc(l.qty)+'"></div>'+
   '<div class="f"><label for="pc'+i+'"><span id="pcl'+i+'">Cost each ($)</span></label><input id="pc'+i+'" type="number" inputmode="decimal" step="any" min="0" value="'+esc(l.unit)+'"></div>'+
-  '<div class="f"><label for="pt'+i+'">Line total ($)</label><input id="pt'+i+'" type="number" inputmode="decimal" step="any" min="0" value="'+esc(l.total)+'"></div></div></div>';
+  '<div class="f"><label for="pt'+i+'">Line total ($)</label><input id="pt'+i+'" type="number" inputmode="decimal" step="any" min="0" value="'+esc(l.total)+'"></div></div><div class="note" id="pcv'+i+'" style="margin:6px 0 0"></div></div>';
  });
  h+='<button class="btn sec sm" id="pAdd">+ Add another item</button>';
  h+='<div class="total" style="margin:14px 0 2px;font-size:20px"><span>Invoice total</span><span id="pTotal">$0.00</span></div><div id="pTotalL" style="text-align:right;color:var(--accent);font-weight:700;margin-bottom:6px">0 LL</div><div class="note" style="margin:0 0 14px">Enter the quantity and either the cost each or the line total. The other one is worked out for you.</div>';
@@ -461,11 +503,11 @@ function wirePurchase(){
  $('modal').querySelectorAll('[data-pdel]').forEach(function(b){b.onclick=function(){d.lines.splice(+b.dataset.pdel,1);renderPurchase()}});
  d.lines.forEach(function(l,i){
   var sel=$('pItem'+i),q=$('pq'+i),c=$('pc'+i),t=$('pt'+i);
-  function unitLbl(){$('pu'+i).textContent='('+l.u+')';$('pcl'+i).textContent='Cost per '+l.u+' ($)'}
+  function unitLbl(){$('pu'+i).textContent='('+l.u+')';$('pcl'+i).textContent='Cost per '+l.u+' ($)';$('pcv'+i).textContent=convTxt(l)}
   unitLbl();
-  sel.onchange=function(){var it2=findItem(this.value);l.itemId=this.value;l.u=it2?it2.unit:'pcs';renderPurchase()};
-  $('pun'+i).onchange=function(){l.u=this.value;unitLbl()};
-  q.oninput=function(){l.qty=this.value;var qq=num(l.qty);if(l.unit!==''){l.total=r2(qq*num(l.unit));t.value=l.total}else if(l.total!==''&&qq>0){l.unit=r4(num(l.total)/qq);c.value=l.unit}ptotal()};
+  sel.onchange=function(){var it2=findItem(this.value);l.itemId=this.value;l.u=it2?buyU(it2):'pcs';renderPurchase()};
+  $('pun'+i).onchange=function(){l.u=this.value;if(l.total!==''&&num(l.qty)>0){l.unit=r4(num(l.total)/num(l.qty));c.value=l.unit}unitLbl()};
+  q.oninput=function(){l.qty=this.value;$('pcv'+i).textContent=convTxt(l);var qq=num(l.qty);if(l.unit!==''){l.total=r2(qq*num(l.unit));t.value=l.total}else if(l.total!==''&&qq>0){l.unit=r4(num(l.total)/qq);c.value=l.unit}ptotal()};
   c.oninput=function(){l.unit=this.value;if(l.unit!==''&&num(l.qty)>0){l.total=r2(num(l.qty)*num(l.unit));t.value=l.total}ptotal()};
   t.oninput=function(){l.total=this.value;if(l.total!==''&&num(l.qty)>0){l.unit=r4(num(l.total)/num(l.qty));c.value=l.unit}ptotal()};
  });
@@ -473,29 +515,26 @@ function wirePurchase(){
  $('pSave').onclick=savePurchase;
 }
 function savePurchase(){
- var d=pDraft,lines=[],planned={};
+ var d=pDraft,lines=[];
  for(var i=0;i<d.lines.length;i++){
   var l=d.lines[i],q=num(l.qty);
   if(q<=0)continue;
   var it=findItem(l.itemId);if(!it){toast('Pick an item for every line');return}
-  var u=l.u||it.unit;
-  if(planned[it.id]&&planned[it.id]!==u){toast(it.name+' appears twice with different units. Use one unit per item on an invoice.');return}
-  planned[it.id]=u;
-  if(u!==it.unit&&it.track&&it.stock>0){toast(it.name+' has '+fmtN(it.stock)+' '+it.unit+' in stock, so buy it in '+it.unit+', or set its stock to 0 in Items first.');return}
+  var u=l.u||buyU(it);
   var total=l.total!==''?num(l.total):(l.unit!==''?q*num(l.unit):0);
-  lines.push({itemId:it.id,name:it.name,unit:u,qty:q,unitCost:q>0?total/q:0,total:Math.round(total*100)/100});
+  lines.push({itemId:it.id,name:it.name,unit:u,qty:q,baseQty:baseQtyOf(it,u,q),unitCost:total/q,total:Math.round(total*100)/100});
  }
  if(!lines.length){toast('Enter a quantity for at least one item');return}
  var sum=0;
  lines.forEach(function(l){
   var it=findItem(l.itemId);
-  if(l.unit!==it.unit){it.unit=l.unit;it.stock=0;it.cost=0}
-  if(l.unitCost>0){
+  var ucb=l.baseQty>0?l.total/l.baseQty:0;
+  if(ucb>0){
    var base=it.track?Math.max(it.stock,0):0;
-   it.cost=(base>0&&it.cost>0)?(base*it.cost+l.qty*l.unitCost)/(base+l.qty):l.unitCost;
-   it.cost=Math.round(it.cost*10000)/10000;
+   it.cost=(base>0&&it.cost>0)?(base*it.cost+l.baseQty*ucb)/(base+l.baseQty):ucb;
+   it.cost=Math.round(it.cost*1e8)/1e8;
   }
-  it.stock=Math.round(((it.track?it.stock:0)+l.qty)*1000)/1000;
+  it.stock=Math.round(((it.track?it.stock:0)+l.baseQty)*1000)/1000;
   it.track=true;
   sum+=l.total;
  });
@@ -506,40 +545,63 @@ function savePurchase(){
 function viewPurchase(id){
  var p=S.purchases.filter(function(x){return x.id===id})[0];if(!p)return;
  var h='<div class="receipt"><h2>Purchase P'+pad(p.no,4)+'</h2><div class="c">'+fmtDT(p.ts)+(p.supplier?'<br>'+esc(p.supplier):'')+'</div><hr>';
- p.lines.forEach(function(l){h+='<div class="l"><span>'+fmtN(l.qty)+' '+esc(l.unit)+' × '+esc(l.name)+'</span><span>'+money(l.total)+'</span></div><div class="l sub"><span>&nbsp;&nbsp;@ '+money(l.unitCost)+' each</span><span></span></div>'});
+ p.lines.forEach(function(l){h+='<div class="l"><span>'+fmtN(l.qty)+' '+esc(l.unit)+' × '+esc(l.name)+'</span><span>'+money(l.total)+'</span></div><div class="l sub"><span>&nbsp;&nbsp;@ '+money(l.unitCost)+' per '+esc(l.unit)+(l.baseQty!==undefined&&l.baseQty!==l.qty?' · '+fmtN(l.baseQty)+' in recipe units':'')+'</span><span></span></div>'});
  h+='<hr><div class="l tot"><span>TOTAL</span><span>'+money(p.total)+'</span></div><div class="l tot"><span>TOTAL (LBP)</span><span>'+lbp(p.total,p.rate)+'</span></div></div>';
  openModal(h+'<div class="row" style="margin-top:16px"><button class="btn bad" id="pvDel" style="flex:1">Delete</button><button class="btn sec" id="pvClose" style="flex:1">Close</button></div>');
  $('pvClose').onclick=closeModal;
  $('pvDel').onclick=function(){ask('Delete purchase P'+pad(p.no,4)+'? The quantities will be taken back out of stock. Cost each is not recalculated.','Delete purchase',function(){
-  p.lines.forEach(function(l){var it=findItem(l.itemId);if(it&&it.track)it.stock=Math.round((it.stock-l.qty)*1000)/1000});
+  p.lines.forEach(function(l){var it=findItem(l.itemId);var bq=(l.baseQty!==undefined?l.baseQty:l.qty);if(it&&it.track)it.stock=Math.round((it.stock-bq)*1000)/1000});
   S.purchases=S.purchases.filter(function(x){return x.id!==p.id});
   save();closeModal();refresh();toast('Purchase deleted');
  },function(){viewPurchase(id)})};
 }
 
 /* REPORT */
+function dayInfo(){
+ var open=reportSel==='open',d=null;
+ if(!open){d=S.days.filter(function(x){return x.id===reportSel})[0];if(!d){reportSel='open';open=true}}
+ return {open:open,d:d,start:open?(S.days.length?S.days[S.days.length-1].end:0):d.start,end:open?Infinity:d.end};
+}
+function inRange(ts,r){return ts>r.start&&ts<=r.end}
 function renderReport(){
- var sales=S.sales.filter(function(s){return dkey(s.ts)===reportDate});
+ var r=dayInfo();
+ var sales=S.sales.filter(function(s){return inRange(s.ts,r)});
  var valid=sales.filter(function(s){return !s.void});
  var byCat={},byItem={},grand=0,grandL=0,units=0,profit=0,spent=0;
- S.purchases.forEach(function(p){if(dkey(p.ts)===reportDate)spent+=p.total});
+ S.purchases.forEach(function(p){if(inRange(p.ts,r))spent+=p.total});
  valid.forEach(function(s){var rt=s.rate||S.rate;s.items.forEach(function(l){
   var a=byCat[l.cat]||(byCat[l.cat]={qty:0,amt:0,lbp:0});a.qty+=l.qty;a.amt+=l.price*l.qty;a.lbp+=l.price*l.qty*rt;
   var k=l.cat+'|'+l.name;var b=byItem[k]||(byItem[k]={cat:l.cat,name:l.name,qty:0,amt:0});b.qty+=l.qty;b.amt+=l.price*l.qty;
   if(l.cost>0)profit+=(l.price-l.cost)*l.qty;
   units+=l.qty});grand+=s.total;grandL+=s.total*rt});
  var cats=S.cats.slice();Object.keys(byCat).forEach(function(c){if(cats.indexOf(c)<0)cats.push(c)});
- var h='<div class="card"><div class="row"><b>Date</b><input type="date" id="rDate" value="'+reportDate+'"><button class="btn sec sm" id="rToday">Today</button></div></div>';
- h+='<div class="stats"><div class="stat"><small>Total sales (USD)</small><div>'+money(grand)+'</div></div><div class="stat"><small>Total sales (LBP)</small><div style="font-size:20px;padding-top:5px">'+Math.round(grandL).toLocaleString('en-US')+' LL</div></div><div class="stat"><small>Invoices</small><div>'+valid.length+'</div></div><div class="stat"><small>Items sold</small><div>'+units+'</div></div><div class="stat"><small>Average invoice</small><div>'+money(valid.length?grand/valid.length:0)+'</div></div><div class="stat"><small>Profit on items with a cost</small><div>'+money(profit)+'</div></div><div class="stat"><small>Stock bought today</small><div>'+money(spent)+'</div></div></div>';
- h+='<div class="card"><h3>Sales by category, '+reportDate+'</h3><div class="tbl"><table><thead><tr><th>Category</th><th class="r">Items</th><th class="r">USD</th><th class="r">LBP</th></tr></thead><tbody>';
+ var first=sales.length?sales[0].ts:null;
+ var dayNo=r.open?S.days.length+1:r.d.no;
+ var title=r.open?'Current day (Day '+dayNo+')':'Day '+dayNo+' (closed)';
+ var span=r.open?(first?'Started '+fmtDT(first)+' · still open':'No sales yet in this day'):(fmtDT(first||r.d.end)+' to '+fmtDT(r.d.end)+'. New sales go to the current day.');
+ var last=S.days.length?S.days[S.days.length-1]:null;
+ var opts='<option value="open"'+(r.open?' selected':'')+'>Current day (Day '+(S.days.length+1)+') · open</option>'+S.days.slice().reverse().map(function(d){return '<option value="'+d.id+'"'+(!r.open&&r.d.id===d.id?' selected':'')+'>Day '+d.no+' · closed '+fmtDT(d.end)+'</option>'}).join('');
+ var h='<div class="card"><div class="row"><select id="rSel" aria-label="Choose a day" style="flex:1;min-width:200px">'+opts+'</select>'+(r.open?'<button class="btn" id="rEnd">End of day</button>':'')+((!r.open&&last&&r.d.id===last.id)?'<button class="btn bad sm" id="rUndo">Undo end of day</button>':'')+'</div><div class="note">'+esc(span)+'</div></div>';
+ h+='<div class="stats"><div class="stat"><small>Total sales (USD)</small><div>'+money(grand)+'</div></div><div class="stat"><small>Total sales (LBP)</small><div style="font-size:20px;padding-top:5px">'+Math.round(grandL).toLocaleString('en-US')+' LL</div></div><div class="stat"><small>Invoices</small><div>'+valid.length+'</div></div><div class="stat"><small>Items sold</small><div>'+units+'</div></div><div class="stat"><small>Average invoice</small><div>'+money(valid.length?grand/valid.length:0)+'</div></div><div class="stat"><small>Profit on items with a cost</small><div>'+money(profit)+'</div></div><div class="stat"><small>Stock bought this day</small><div>'+money(spent)+'</div></div></div>';
+ h+='<div class="card"><h3>Sales by category, '+esc(title)+'</h3><div class="tbl"><table><thead><tr><th>Category</th><th class="r">Items</th><th class="r">USD</th><th class="r">LBP</th></tr></thead><tbody>';
  cats.forEach(function(c){var a=byCat[c]||{qty:0,amt:0,lbp:0};h+='<tr><td>'+esc(c)+'</td><td class="r">'+a.qty+'</td><td class="r">'+money(a.amt)+'</td><td class="r">'+Math.round(a.lbp).toLocaleString('en-US')+'</td></tr>'});
  h+='</tbody><tfoot><tr><td>Total</td><td class="r">'+units+'</td><td class="r">'+money(grand)+'</td><td class="r">'+Math.round(grandL).toLocaleString('en-US')+'</td></tr></tfoot></table></div></div>';
  var iv=Object.keys(byItem).map(function(k){return byItem[k]}).sort(function(a,b){return b.amt-a.amt});
- h+='<div class="card"><h3>Items sold</h3>'+(iv.length?'<div class="tbl"><table><thead><tr><th>Item</th><th>Category</th><th class="r">Qty</th><th class="r">Amount</th></tr></thead><tbody>'+iv.map(function(i){return '<tr><td>'+esc(i.name)+'</td><td>'+esc(i.cat)+'</td><td class="r">'+i.qty+'</td><td class="r">'+money(i.amt)+'</td></tr>'}).join('')+'</tbody></table></div>':'<div style="color:var(--mute)">No sales on this day.</div>')+'</div>';
- h+='<div class="card"><h3>Invoices</h3>'+(sales.length?'<div class="tbl"><table><thead><tr><th>#</th><th>Time</th><th class="r">Total</th><th></th></tr></thead><tbody>'+sales.slice().reverse().map(function(s){return '<tr><td>'+pad(s.no,4)+(s.void?' <span class="void">VOID</span>':'')+'</td><td>'+fmtTime(s.ts)+'</td><td class="r"'+(s.void?' style="text-decoration:line-through;color:var(--mute)"':'')+'>'+money(s.total)+'</td><td class="r"><button class="btn sec sm" data-v="'+s.id+'">View</button></td></tr>'}).join('')+'</tbody></table></div>':'<div style="color:var(--mute)">None.</div>')+'</div>';
+ h+='<div class="card"><h3>Items sold</h3>'+(iv.length?'<div class="tbl"><table><thead><tr><th>Item</th><th>Category</th><th class="r">Qty</th><th class="r">Amount</th></tr></thead><tbody>'+iv.map(function(i){return '<tr><td>'+esc(i.name)+'</td><td>'+esc(i.cat)+'</td><td class="r">'+i.qty+'</td><td class="r">'+money(i.amt)+'</td></tr>'}).join('')+'</tbody></table></div>':'<div style="color:var(--mute)">No sales in this day.</div>')+'</div>';
+ h+='<div class="card"><h3>Invoices</h3>'+(sales.length?'<div class="tbl"><table><thead><tr><th>#</th><th>Time</th><th class="r">Total</th><th></th></tr></thead><tbody>'+sales.slice().reverse().map(function(s){return '<tr><td>'+pad(s.no,4)+(s.void?' <span class="void">VOID</span>':'')+'</td><td>'+fmtDT(s.ts)+'</td><td class="r"'+(s.void?' style="text-decoration:line-through;color:var(--mute)"':'')+'>'+money(s.total)+'</td><td class="r"><button class="btn sec sm" data-v="'+s.id+'">View</button></td></tr>'}).join('')+'</tbody></table></div>':'<div style="color:var(--mute)">None.</div>')+'</div>';
  $('report').innerHTML=h;
- $('rDate').onchange=function(){reportDate=this.value||today();renderReport()};
- $('rToday').onclick=function(){reportDate=today();renderReport()};
+ $('rSel').onchange=function(){reportSel=this.value;renderReport()};
+ if($('rEnd'))$('rEnd').onclick=function(){
+  if(!valid.length){toast('No sales in the current day yet');return}
+  ask('End Day '+dayNo+' now? Its totals are saved, and a new day starts from zero. You can open Day '+dayNo+' later from the list.','End day',function(){
+   var no=S.days.length?S.days[S.days.length-1].no+1:1;
+   var dd={id:uid(),no:no,start:r.start,end:Date.now()};
+   S.days.push(dd);reportSel=dd.id;save();closeModal();renderReport();toast('Day '+no+' closed. New sales start a new day.');
+  });
+ };
+ if($('rUndo'))$('rUndo').onclick=function(){
+  ask('Undo the end of Day '+r.d.no+'? Its sales go back into the current day.','Undo',function(){S.days.pop();reportSel='open';save();closeModal();renderReport()});
+ };
  $('report').querySelectorAll('[data-v]').forEach(function(b){b.onclick=function(){viewSale(b.dataset.v)}});
 }
 function viewSale(id){
@@ -561,6 +623,7 @@ function renderItems(){
  var h='<div class="card"><h3>Store name (shown on invoice)</h3><div class="row"><input id="storeName" value="'+esc(S.store)+'" style="flex:1;min-width:200px"><button class="btn sm" id="saveStore">Save</button></div></div>';
  h+='<div class="card"><h3>Exchange rate (Lebanese lira per 1 USD)</h3><div class="row"><span>1 USD =</span><input id="rate" type="number" inputmode="numeric" min="1" step="any" value="'+S.rate+'" style="width:160px"><span>LL</span><button class="btn sm" id="saveRate">Save rate</button></div><div class="note">Each invoice keeps the rate it was made with, so a new rate only affects new sales.</div></div>';
  h+='<div class="card"><h3>Categories</h3><div>'+S.cats.map(function(c,i){return '<span class="chip">'+esc(c)+'<i data-dc="'+i+'">✕</i></span>'}).join('')+'</div><div class="row" style="margin-top:6px"><input id="newCat" placeholder="New category" style="flex:1;min-width:160px"><button class="btn sm" id="addCat">Add</button></div></div>';
+ h+='<div class="card"><h3>Units</h3><div>'+S.units.map(function(u,i){return '<span class="chip">'+esc(u)+'<i data-du="'+i+'">✕</i></span>'}).join('')+'</div><div class="row" style="margin-top:6px"><input id="newUnit" placeholder="New unit, for example L or cl" style="flex:1;min-width:160px"><button class="btn sm" id="addUnit">Add</button></div><div class="note">Units you add here can be chosen when you set up stock items.</div></div>';
  h+='<div class="card"><div class="row" style="justify-content:space-between;margin-bottom:6px"><h3 style="margin:0">Items you sell</h3><button class="btn sm" id="addItem">+ Add item</button></div>';
  if(!S.items.some(function(i){return i.kind==='sale'}))h+='<div style="color:var(--mute)">No items yet. Tap “Add item”, then pick its recipe from your stock items.</div>';
  S.cats.forEach(function(c){var l=S.items.filter(function(i){return i.cat===c&&i.kind==='sale'});if(!l.length)return;
@@ -574,6 +637,8 @@ function renderItems(){
  $('saveRate').onclick=function(){var r=parseFloat($('rate').value);if(isNaN(r)||r<=0){toast('Enter a valid rate');return}S.rate=r;save();toast('Rate saved')};
  $('addCat').onclick=function(){var v=$('newCat').value.trim();if(!v)return;if(S.cats.indexOf(v)>=0){toast('Already exists');return}S.cats.push(v);save();renderItems()};
  $('itemsView').querySelectorAll('[data-dc]').forEach(function(b){b.onclick=function(){var idx=b.dataset.dc,c=S.cats[idx];if(S.items.some(function(i){return i.cat===c})){toast('Move or delete its items first');return}ask('Delete category "'+c+'"?','Delete',function(){S.cats.splice(idx,1);save();closeModal();renderItems()})}});
+ $('addUnit').onclick=function(){var v=$('newUnit').value.trim();if(!v)return;if(S.units.indexOf(v)>=0){toast('Already exists');return}S.units.push(v);save();renderItems()};
+ $('itemsView').querySelectorAll('[data-du]').forEach(function(b){b.onclick=function(){var idx=b.dataset.du,u=S.units[idx];if(S.items.some(function(i){return i.kind==='stock'&&(i.unit===u||buyU(i)===u)})){toast('A stock item uses this unit. Change that item first.');return}ask('Delete unit "'+u+'"?','Delete',function(){S.units.splice(idx,1);save();closeModal();renderItems()})}});
  $('addItem').onclick=function(){editItem(null)};
  $('itemsView').querySelectorAll('[data-e]').forEach(function(b){b.onclick=function(){editItem(b.dataset.e)}});
  $('bkExport').onclick=function(){showText('Backup data',JSON.stringify(S),'Tap Copy and paste it into Notes, or tap Save file. Use Restore backup to load it again.','kiosk-backup-'+today()+'.txt')};
@@ -598,7 +663,7 @@ var eDraft=null;
 function recCost(d){var t=0;d.recipe.forEach(function(l){var g=findItem(l.itemId);if(g)t+=num(l.qty)*(g.cost||0)});return t}
 function ingCands(){return S.items.filter(isBuyable).sort(function(a,b){return a.name.localeCompare(b.name)})}
 function ingredientOptions(sel){
- return ingCands().map(function(i){return '<option value="'+i.id+'"'+(i.id===sel?' selected':'')+'>'+esc(i.name)+(i.supplier?' · '+esc(i.supplier):'')+' ('+esc(i.unit)+(i.cost>0?', '+money(i.cost)+'/'+esc(i.unit):'')+')</option>'}).join('');
+ return ingCands().map(function(i){return '<option value="'+i.id+'"'+(i.id===sel?' selected':'')+'>'+esc(i.name)+(i.supplier?' · '+esc(i.supplier):'')+' (recipe unit '+esc(i.unit)+(i.cost>0?', '+money(i.cost*fct(i))+'/'+esc(buyU(i)):'')+')</option>'}).join('');
 }
 function editItem(id){
  var it=id?findItem(id):null;

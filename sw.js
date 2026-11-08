@@ -1,9 +1,13 @@
 /* Keeps the app on the device so it opens with no internet. */
-var CACHE = 'kiosk-pos-v1';
+var CACHE = 'kiosk-pos-v2';
 var FILES = ['./', './index.html', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', function (e) {
-  e.waitUntil(caches.open(CACHE).then(function (c) { return c.addAll(FILES); }).then(function () { return self.skipWaiting(); }));
+  e.waitUntil(
+    caches.open(CACHE)
+      .then(function (c) { return c.addAll(FILES.map(function (f) { return new Request(f, { cache: 'reload' }); })); })
+      .then(function () { return self.skipWaiting(); })
+  );
 });
 
 self.addEventListener('activate', function (e) {
@@ -18,7 +22,7 @@ self.addEventListener('fetch', function (e) {
   if (e.request.method !== 'GET') return;
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then(function (hit) {
-      var net = fetch(e.request).then(function (res) {
+      var net = fetch(e.request, { cache: 'no-cache' }).then(function (res) {
         if (res && res.ok && new URL(e.request.url).origin === location.origin) {
           var copy = res.clone();
           caches.open(CACHE).then(function (c) { c.put(e.request, copy); });
