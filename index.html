@@ -90,6 +90,8 @@ td.r,th.r{text-align:right}
 tfoot td{font-weight:800;border-bottom:0}
 .itemrow{display:flex;align-items:center;gap:0.625rem;padding:0.625rem 0;border-bottom:1px solid var(--line)}
 .itemrow .n{flex:1;min-width:0}
+.mv{display:flex;gap:0.25rem}.mv button{border:1px solid var(--line);background:var(--bg);color:var(--text);border-radius:0.5rem;width:2.25rem;height:2.25rem;font-size:0.9375rem;padding:0}.mv button:disabled{opacity:.3}
+.chip i.mvc{color:var(--accent);margin:0 0 0 0.25rem;padding:0.25rem 0.375rem}
 .sugs{display:flex;flex-wrap:wrap;gap:0.375rem;margin-top:0.5rem;max-height:6.5rem;overflow:auto}.sugs button{border:1px solid var(--line);background:var(--bg);color:var(--text);border-radius:62.4375rem;padding:0.4375rem 0.875rem;font-size:0.875rem;font-weight:600}.sugs button.on{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}.rsearch{width:100%;margin-bottom:0.375rem}.rline select[size]{height:auto}
 .chip{display:inline-block;background:var(--accent2);color:var(--accent);border-radius:62.4375rem;padding:0.375rem 0.75rem;margin:0 0.375rem 0.375rem 0;font-size:0.875rem;font-weight:600}
 .chip i{font-style:normal;margin-left:0.5rem;color:var(--bad);cursor:pointer;padding:0.25rem}
@@ -262,6 +264,7 @@ function migrate(){
 function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
 function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function money(n){return '$'+(Math.round(n*100)/100).toFixed(2)}
+function payLL(usd,r){var v=usd*(r||S.rate||0);return v<=0.5?0:Math.ceil((v-0.5)/5000)*5000}
 function lbp(n,r){return Math.round(n*(r||S.rate||0)).toLocaleString('en-US')+' LL'}
 function fmtLL(n){return Math.round(n).toLocaleString('en-US')+' LL'}
 function fmtN(n){return String(Math.round(n*1000)/1000)}
@@ -427,10 +430,10 @@ function renderCart(){
  $('lines').querySelectorAll('[data-p]').forEach(function(b){b.onclick=function(){addUnit(b.dataset.p);renderSale()}});
  var sub=cartSub(),da=discAmt(),t=cartTotal();
  if(disc&&ids.length&&da>0){$('discRows').hidden=false;$('discRows').innerHTML='<div class="dr"><span>Subtotal</span><span>'+money(sub)+'</span></div><div class="dr"><span>Discount ('+esc(discLabel(disc))+') <button class="lnk" id="discX" aria-label="Remove discount">✕</button></span><span>−'+money(da)+'</span></div>';$('discX').onclick=function(){disc=null;renderCart()}}else $('discRows').hidden=true;
- $('cartTotal').textContent=money(t);$('cartLbp').textContent=lbp(t);$('checkout').disabled=!ids.length;$('discBtn').disabled=!ids.length;updateChange();
+ $('cartTotal').textContent=money(t);$('cartLbp').textContent=fmtLL(payLL(t));$('checkout').disabled=!ids.length;$('discBtn').disabled=!ids.length;updateChange();
 }
 function updateChange(){
- var cl=parseFloat($('cash').value),t=cartTotal(),tl=Math.round(t*(S.rate||1));
+ var cl=parseFloat($('cash').value),t=cartTotal(),tl=payLL(t);
  if(!isNaN(cl)&&cl>0&&t>0){$('changeRow').hidden=false;$('change').textContent=cl>=tl?fmtLL(cl-tl):'Short '+fmtLL(tl-cl)}else $('changeRow').hidden=true;
 }
 $('cash').oninput=updateChange;
@@ -448,7 +451,7 @@ $('checkout').onclick=function(){
  var cashL=parseFloat($('cash').value);
  var da=Math.min(discAmt(),total);
  S.counter++;
- var sale={id:uid(),no:S.counter,ts:Date.now(),items:lines,sub:Math.round(total*100)/100,total:Math.round((total-da)*100)/100,discount:(disc&&da>0)?{type:disc.type,value:disc.value,amount:da}:null,rate:S.rate,cash:(!isNaN(cashL)&&cashL>0)?Math.round(cashL/(S.rate||1)*100)/100:null,cashLbp:(!isNaN(cashL)&&cashL>0)?Math.round(cashL):null,void:false};
+ var sale={id:uid(),no:S.counter,ts:Date.now(),items:lines,sub:Math.round(total*100)/100,total:Math.round((total-da)*100)/100,discount:(disc&&da>0)?{type:disc.type,value:disc.value,amount:da}:null,rate:S.rate,totalLbp:payLL(Math.round((total-da)*100)/100),cash:(!isNaN(cashL)&&cashL>0)?Math.round(cashL/(S.rate||1)*100)/100:null,cashLbp:(!isNaN(cashL)&&cashL>0)?Math.round(cashL):null,void:false};
  var warn=[];
  lines.forEach(function(l){
   if(l.used){l.used.forEach(function(u){var g=findItem(u.id);if(g&&g.track){g.stock=Math.round((g.stock-u.qty)*1000)/1000;if(g.stock<=0&&warn.indexOf(g.name)<0)warn.push(g.name)}})}
@@ -464,8 +467,8 @@ $('checkout').onclick=function(){
 function receiptHTML(s){
  var h='<div class="receipt"><h2>'+esc(S.store||'Kiosk')+'</h2><div class="c">Invoice #'+pad(s.no,4)+'<br>'+fmtDT(s.ts)+'</div><hr>';
  s.items.forEach(function(l){h+='<div class="l"><span>'+fmtN(l.qty)+' × '+esc(l.name)+'</span><span>'+money(l.price*l.qty)+'</span></div>'+(l.qty>1?'<div class="l sub"><span>&nbsp;&nbsp;@ '+money(l.price)+'</span><span></span></div>':'')});
- h+='<hr>'+(s.discount&&s.discount.amount>0?'<div class="l"><span>Subtotal</span><span>'+money(s.sub!==undefined?s.sub:s.total+s.discount.amount)+'</span></div><div class="l"><span>Discount ('+esc(discLabel(s.discount))+')</span><span>−'+money(s.discount.amount)+'</span></div>':'')+'<div class="l tot"><span>TOTAL</span><span>'+money(s.total)+'</span></div><div class="l tot"><span>TOTAL (LBP)</span><span>'+lbp(s.total,s.rate)+'</span></div><div class="l sub"><span>Rate: 1 USD = '+Number(s.rate||S.rate).toLocaleString('en-US')+' LL</span><span></span></div>';
- if(s.cashLbp){h+='<div class="l"><span>Cash received</span><span>'+fmtLL(s.cashLbp)+'</span></div><div class="l"><span>Change</span><span>'+fmtLL(Math.max(0,s.cashLbp-Math.round(s.total*(s.rate||1))))+'</span></div>'}else if(s.cash)h+='<div class="l"><span>Cash</span><span>'+money(s.cash)+'</span></div><div class="l"><span>Change</span><span>'+money(Math.max(0,s.cash-s.total))+'</span></div>';
+ h+='<hr>'+(s.discount&&s.discount.amount>0?'<div class="l"><span>Subtotal</span><span>'+money(s.sub!==undefined?s.sub:s.total+s.discount.amount)+'</span></div><div class="l"><span>Discount ('+esc(discLabel(s.discount))+')</span><span>−'+money(s.discount.amount)+'</span></div>':'')+'<div class="l tot"><span>TOTAL</span><span>'+money(s.total)+'</span></div><div class="l tot"><span>TOTAL (LBP)</span><span>'+(s.totalLbp!==undefined?fmtLL(s.totalLbp):lbp(s.total,s.rate))+'</span></div><div class="l sub"><span>Rate: 1 USD = '+Number(s.rate||S.rate).toLocaleString('en-US')+' LL</span><span></span></div>';
+ if(s.cashLbp){h+='<div class="l"><span>Cash received</span><span>'+fmtLL(s.cashLbp)+'</span></div><div class="l"><span>Change</span><span>'+fmtLL(Math.max(0,s.cashLbp-(s.totalLbp!==undefined?s.totalLbp:Math.round(s.total*(s.rate||1)))))+'</span></div>'}else if(s.cash)h+='<div class="l"><span>Cash</span><span>'+money(s.cash)+'</span></div><div class="l"><span>Change</span><span>'+money(Math.max(0,s.cash-s.total))+'</span></div>';
  if(s.void)h+='<hr><div class="c void">*** VOIDED ***</div>';
  h+='<hr><div class="c">Thank you!</div></div>';return h;
 }
@@ -704,7 +707,7 @@ function renderReport(){
   var a=byCat[l.cat]||(byCat[l.cat]={qty:0,amt:0,lbp:0});a.qty=r3(a.qty+l.qty);a.amt+=la;a.lbp+=la*rt;
   var k=l.cat+'|'+l.name;var b=byItem[k]||(byItem[k]={cat:l.cat,name:l.name,qty:0,amt:0});b.qty=r3(b.qty+l.qty);b.amt+=la;
   if(l.cost>0)profit+=la-l.cost*l.qty;
-  units=r3(units+l.qty)});grand+=s.total;grandL+=s.total*rt});
+  units=r3(units+l.qty)});grand+=s.total;grandL+=(s.totalLbp!==undefined?s.totalLbp:s.total*rt)});
  var cats=S.cats.slice();Object.keys(byCat).forEach(function(c){if(cats.indexOf(c)<0)cats.push(c)});
  var first=sales.length?sales[0].ts:null;
  var dayNo=r.open?S.days.length+1:r.d.no;
@@ -750,30 +753,51 @@ function viewSale(id){
 }
 
 /* ITEMS */
+var itemQ='',APP_VER=9;
+function drawItemList(){
+ var box=$('itemList');if(!box)return;
+ var w=itemQ.toLowerCase().split(/\s+/).filter(Boolean),h='',found=0;
+ S.cats.forEach(function(c){
+  var l=S.items.filter(function(i){if(i.cat!==c||i.kind!=='sale')return false;var t=(i.name+' '+c).toLowerCase();return w.every(function(x){return t.indexOf(x)>=0})});
+  if(!l.length)return;found+=l.length;
+  h+='<div style="margin-top:0.75rem;font-weight:700;color:var(--accent)">'+esc(c)+'</div>';
+  l.forEach(function(i,k){h+='<div class="itemrow"><div class="n">'+esc(i.name)+itemSub(i)+'</div><b>'+money(i.price)+'</b>'+(w.length?'':'<span class="mv"><button data-mu="'+i.id+'" aria-label="Move up"'+(k===0?' disabled':'')+'>▲</button><button data-md="'+i.id+'" aria-label="Move down"'+(k===l.length-1?' disabled':'')+'>▼</button></span>')+'<button class="btn sec sm" data-e="'+i.id+'">Edit</button></div>'});
+ });
+ if(!found&&w.length)h='<div style="color:var(--mute);margin-top:0.75rem">No items match “'+esc(itemQ)+'”.</div>';
+ box.innerHTML=h;
+ box.querySelectorAll('[data-e]').forEach(function(b){b.onclick=function(){editItem(b.dataset.e)}});
+ box.querySelectorAll('[data-mu],[data-md]').forEach(function(b){b.onclick=function(){moveItem(b.dataset.mu||b.dataset.md,b.dataset.mu?-1:1)}});
+}
+function moveItem(id,dir){
+ var it=findItem(id);if(!it)return;
+ var idx=S.items.indexOf(it),j=idx+dir;
+ while(j>=0&&j<S.items.length&&!(S.items[j].kind==='sale'&&S.items[j].cat===it.cat))j+=dir;
+ if(j<0||j>=S.items.length)return;
+ var o=S.items[j];S.items[j]=it;S.items[idx]=o;save();drawItemList();
+}
 function renderItems(){
  var h='<div class="card"><h3>Text size</h3><div class="seg" id="sizeSeg">'+SIZES.map(function(z,i){return '<button data-z="'+i+'" class="'+(i===sizeIdx?'on':'')+'">'+z.n+'</button>'}).join('')+'</div><div class="note" style="margin:0">This only changes this device. You can also tap Aa at the top of any screen.</div></div>';
  h+='<div class="card"><h3>Store name (shown on invoice)</h3><div class="row"><input id="storeName" value="'+esc(S.store)+'" style="flex:1;min-width:12.5rem"><button class="btn sm" id="saveStore">Save</button></div></div>';
  h+='<div class="card"><h3>Exchange rate (Lebanese lira per 1 USD)</h3><div class="row"><span>1 USD =</span><input id="rate" type="number" inputmode="numeric" min="1" step="any" value="'+S.rate+'" style="width:10rem"><span>LL</span><button class="btn sm" id="saveRate">Save rate</button></div><div class="note">Each invoice keeps the rate it was made with, so a new rate only affects new sales.</div></div>';
- h+='<div class="card"><h3>Categories</h3><div>'+S.cats.map(function(c,i){return '<span class="chip">'+esc(c)+'<i data-dc="'+i+'">✕</i></span>'}).join('')+'</div><div class="row" style="margin-top:0.375rem"><input id="newCat" placeholder="New category" style="flex:1;min-width:10rem"><button class="btn sm" id="addCat">Add</button></div></div>';
+ h+='<div class="card"><h3>Categories</h3><div class="note" style="margin:0 0 0.5rem">Use ◀ ▶ to change the order. This is the order of the tabs on the Sale screen.</div><div>'+S.cats.map(function(c,i){return '<span class="chip">'+(i>0?'<i class="mvc" data-cl="'+i+'" aria-label="Move left">◀</i>':'')+esc(c)+(i<S.cats.length-1?'<i class="mvc" data-cr="'+i+'" aria-label="Move right">▶</i>':'')+'<i data-dc="'+i+'">✕</i></span>'}).join('')+'</div><div class="row" style="margin-top:0.375rem"><input id="newCat" placeholder="New category" style="flex:1;min-width:10rem"><button class="btn sm" id="addCat">Add</button></div></div>';
  h+='<div class="card"><h3>Units</h3><div>'+S.units.map(function(u,i){return '<span class="chip">'+esc(u)+'<i data-du="'+i+'">✕</i></span>'}).join('')+'</div><div class="row" style="margin-top:0.375rem"><input id="newUnit" placeholder="New unit, for example L or cl" style="flex:1;min-width:10rem"><button class="btn sm" id="addUnit">Add</button></div><div class="note">Units you add here can be chosen when you set up stock items.</div></div>';
  h+='<div class="card"><div class="row" style="justify-content:space-between;margin-bottom:0.375rem"><h3 style="margin:0">Items you sell</h3><button class="btn sm" id="addItem">+ Add item</button></div>';
  if(!S.items.some(function(i){return i.kind==='sale'}))h+='<div style="color:var(--mute)">No items yet. Tap “Add item”, then pick its recipe from your stock items.</div>';
- S.cats.forEach(function(c){var l=S.items.filter(function(i){return i.cat===c&&i.kind==='sale'});if(!l.length)return;
-  h+='<div style="margin-top:0.75rem;font-weight:700;color:var(--accent)">'+esc(c)+'</div>';
-  l.forEach(function(i){h+='<div class="itemrow"><div class="n">'+esc(i.name)+itemSub(i)+'</div><b>'+money(i.price)+'</b><button class="btn sec sm" data-e="'+i.id+'">Edit</button></div>'});
- });
- h+='</div>';
- h+='<div class="card"><h3>Backup</h3><div class="note" style="margin:0 0 0.625rem">Everything is saved automatically on this device and works with no internet. It is kept only on this device, so make a backup copy regularly and keep it in Notes or email it to yourself.<br><b>Last backup: '+(S.lastBackup?fmtDT(S.lastBackup):'never')+'</b></div><div class="row"><button class="btn sec sm" id="bkExport">Backup data</button><button class="btn sec sm" id="bkImport">Restore backup</button><button class="btn sec sm" id="csvExport">Sales as CSV</button></div></div>';
+else h+='<input id="itemQ" type="search" placeholder="🔍 Search items" autocomplete="off" value="'+esc(itemQ)+'" style="width:100%;margin:0.25rem 0 0.25rem">';
+h+='<div id="itemList"></div>';
+h+='</div>';
+ h+='<div class="card"><h3>Backup</h3><div class="note" style="margin:0 0 0.625rem">Everything is saved automatically on this device and works with no internet. It is kept only on this device, so make a backup copy regularly and keep it in Notes or email it to yourself.<br><b>App version '+APP_VER+'</b> · <b>Last backup: '+(S.lastBackup?fmtDT(S.lastBackup):'never')+'</b></div><div class="row"><button class="btn sec sm" id="bkExport">Backup data</button><button class="btn sec sm" id="bkImport">Restore backup</button><button class="btn sec sm" id="csvExport">Sales as CSV</button></div></div>';
  $('itemsView').innerHTML=h;
  $('sizeSeg').querySelectorAll('button').forEach(function(b){b.onclick=function(){setSize(+b.dataset.z);renderItems()}});
  $('saveStore').onclick=function(){S.store=$('storeName').value.trim()||'Kiosk';save();$('storeTitle').textContent=S.store;toast('Saved')};
  $('saveRate').onclick=function(){var r=parseFloat($('rate').value);if(isNaN(r)||r<=0){toast('Enter a valid rate');return}S.rate=r;save();toast('Rate saved')};
  $('addCat').onclick=function(){var v=$('newCat').value.trim();if(!v)return;if(S.cats.indexOf(v)>=0){toast('Already exists');return}S.cats.push(v);save();renderItems()};
+ $('itemsView').querySelectorAll('[data-cl],[data-cr]').forEach(function(b){b.onclick=function(){var i=+(b.dataset.cl!==undefined?b.dataset.cl:b.dataset.cr),j=b.dataset.cl!==undefined?i-1:i+1,t=S.cats[i];S.cats[i]=S.cats[j];S.cats[j]=t;save();renderItems()}});
  $('itemsView').querySelectorAll('[data-dc]').forEach(function(b){b.onclick=function(){var idx=b.dataset.dc,c=S.cats[idx];if(S.items.some(function(i){return i.cat===c})){toast('Move or delete its items first');return}ask('Delete category "'+c+'"?','Delete',function(){S.cats.splice(idx,1);save();closeModal();renderItems()})}});
  $('addUnit').onclick=function(){var v=$('newUnit').value.trim();if(!v)return;if(S.units.indexOf(v)>=0){toast('Already exists');return}S.units.push(v);save();renderItems()};
  $('itemsView').querySelectorAll('[data-du]').forEach(function(b){b.onclick=function(){var idx=b.dataset.du,u=S.units[idx];if(S.items.some(function(i){return i.kind==='stock'&&(i.unit===u||buyU(i)===u)})){toast('A stock item uses this unit. Change that item first.');return}ask('Delete unit "'+u+'"?','Delete',function(){S.units.splice(idx,1);save();closeModal();renderItems()})}});
  $('addItem').onclick=function(){editItem(null)};
- $('itemsView').querySelectorAll('[data-e]').forEach(function(b){b.onclick=function(){editItem(b.dataset.e)}});
+ drawItemList();if($('itemQ'))$('itemQ').oninput=function(){itemQ=this.value;drawItemList()};
  $('bkExport').onclick=function(){showText('Backup data',JSON.stringify(S),'Tap Copy and paste it into Notes, or tap Save file. Use Restore backup to load it again.','kiosk-backup-'+today()+'.txt',function(){S.lastBackup=Date.now();save();setSync('saved');if(curView==='items')renderItems()})};
  $('bkImport').onclick=restoreDialog;
  $('csvExport').onclick=function(){
@@ -908,7 +932,7 @@ renderSale();
 initDb();
 
 /* Offline: keep the app files on the device */
-if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){})})}
+if('serviceWorker' in navigator){var hadCtl=!!navigator.serviceWorker.controller,reloaded=false;navigator.serviceWorker.addEventListener('controllerchange',function(){if(hadCtl&&!reloaded){reloaded=true;location.reload()}});window.addEventListener('load',function(){navigator.serviceWorker.register('sw.js').catch(function(){})})}
 </script>
 </body>
 </html>
