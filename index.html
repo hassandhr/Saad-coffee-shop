@@ -213,8 +213,10 @@ button.sync{border:0;background:transparent;padding:0;font:inherit;font-size:.75
 var KEY='kioskpos_v1';
 var UI_KEY='kioskpos_ui',SIZES=[{n:'Normal',s:1},{n:'Large',s:1.2},{n:'Extra large',s:1.4},{n:'Huge',s:1.6}],sizeIdx=0;
 function applySize(){document.documentElement.style.fontSize=(16*SIZES[sizeIdx].s)+'px'}
-function loadUi(){try{var u=JSON.parse(localStorage.getItem(UI_KEY)||'{}');if(u.size>=0&&u.size<SIZES.length)sizeIdx=u.size}catch(e){}}
-function setSize(i){sizeIdx=i;applySize();try{localStorage.setItem(UI_KEY,JSON.stringify({size:sizeIdx}))}catch(e){}}
+var lastItemCat='';
+function saveUi(){try{localStorage.setItem(UI_KEY,JSON.stringify({size:sizeIdx,cat:lastItemCat}))}catch(e){}}
+function loadUi(){try{var u=JSON.parse(localStorage.getItem(UI_KEY)||'{}');if(u.size>=0&&u.size<SIZES.length)sizeIdx=u.size;if(typeof u.cat==='string')lastItemCat=u.cat}catch(e){}}
+function setSize(i){sizeIdx=i;applySize();saveUi()}
 loadUi();applySize();
 var S={store:'My Kiosk',rate:89500,cats:['Drinks','Cigarettes','Purchases'],items:[],sales:[],counter:0,purchases:[],pcounter:0,days:[],units:['pcs','kg','g','L','ml']};
 var cart={},cartOrder=[]; var curCat=null; var reportSel='open'; var curView='sale';
@@ -753,7 +755,7 @@ function viewSale(id){
 }
 
 /* ITEMS */
-var itemQ='',APP_VER=9;
+var itemQ='',APP_VER=10;
 function drawItemList(){
  var box=$('itemList');if(!box)return;
  var w=itemQ.toLowerCase().split(/\s+/).filter(Boolean),h='',found=0;
@@ -844,7 +846,7 @@ function ingredientOptions(sel,q){
 function editItem(id){
  var it=id?findItem(id):null;
  eDraft=it?{id:it.id,name:it.name,price:String(it.price),cat:it.cat,recipe:(it.recipe||[]).map(function(r){return {itemId:r.itemId,qty:String(r.qty),q:''}}),margin:''}
-  :{id:null,name:'',price:'',cat:curCat||S.cats[0],recipe:[],margin:''};
+  :{id:null,name:'',price:'',cat:(S.cats.indexOf(lastItemCat)>=0?lastItemCat:(curCat||S.cats[0])),recipe:[],margin:''};
  renderEdit();
 }
 function renderEdit(){
@@ -915,6 +917,7 @@ function wireEdit(){
   var rec=d.recipe.filter(function(l){return num(l.qty)>0&&findItem(l.itemId)}).map(function(l){return {itemId:l.itemId,qty:num(l.qty)}});
   var f={name:n,price:Math.round(p*100)/100,cat:d.cat,kind:'sale',noSale:false,recipe:rec,track:false,unit:'pcs',stock:0,cost:0};
   if(d.id){var it=findItem(d.id);for(var k in f)it[k]=f[k]}else{f.id=uid();S.items.push(f)}
+  lastItemCat=d.cat;saveUi();
   save();closeModal();refresh();
  };
  if($('iDel'))$('iDel').onclick=function(){
