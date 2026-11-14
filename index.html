@@ -211,7 +211,7 @@ button.sync{border:0;background:transparent;padding:0;font:inherit;font-size:.75
 <script>
 
 var KEY='kioskpos_v1';
-var UI_KEY='kioskpos_ui',SIZES=[{n:'Normal',s:1},{n:'Large',s:1.2},{n:'Extra large',s:1.4},{n:'Huge',s:1.6}],sizeIdx=0;
+var APP_VER=11,UI_KEY='kioskpos_ui',SIZES=[{n:'Normal',s:1},{n:'Large',s:1.2},{n:'Extra large',s:1.4},{n:'Huge',s:1.6}],sizeIdx=0;
 function applySize(){document.documentElement.style.fontSize=(16*SIZES[sizeIdx].s)+'px'}
 var lastItemCat='';
 function saveUi(){try{localStorage.setItem(UI_KEY,JSON.stringify({size:sizeIdx,cat:lastItemCat}))}catch(e){}}
@@ -230,7 +230,7 @@ function setSync(st){
  var e=document.getElementById('sync');if(!e)return;
  if(st==='error'){e.textContent='Could not save on this device';e.className='sync bad';return}
  if(backupDue()){e.textContent='Back up your data';e.className='sync bad'}
- else{e.textContent='Works offline';e.className='sync'}
+ else{e.textContent='Works offline · v'+APP_VER;e.className='sync'}
 }
 function save(){
  try{localStorage.setItem(KEY,JSON.stringify(S));setSync('saved')}
@@ -755,7 +755,7 @@ function viewSale(id){
 }
 
 /* ITEMS */
-var itemQ='',APP_VER=10;
+var itemQ='';
 function drawItemList(){
  var box=$('itemList');if(!box)return;
  var w=itemQ.toLowerCase().split(/\s+/).filter(Boolean),h='',found=0;
@@ -843,10 +843,15 @@ function ingredientOptions(sel,q){
  if(sel&&!list.some(function(i){return i.id===sel})){var cur=findItem(sel);if(cur)list.unshift(cur)}
  return list.map(function(i){return '<option value="'+i.id+'"'+(i.id===sel?' selected':'')+'>'+esc(i.name)+(i.supplier?' · '+esc(i.supplier):'')+' (recipe unit '+esc(i.unit)+(i.cost>0?', '+money(i.cost*fct(i))+'/'+esc(buyU(i)):'')+')</option>'}).join('');
 }
+function lastCatGuess(){
+ if(S.cats.indexOf(lastItemCat)>=0)return lastItemCat;
+ for(var k=S.items.length-1;k>=0;k--){if(S.items[k].kind==='sale'&&S.cats.indexOf(S.items[k].cat)>=0)return S.items[k].cat}
+ return curCat||S.cats[0];
+}
 function editItem(id){
  var it=id?findItem(id):null;
  eDraft=it?{id:it.id,name:it.name,price:String(it.price),cat:it.cat,recipe:(it.recipe||[]).map(function(r){return {itemId:r.itemId,qty:String(r.qty),q:''}}),margin:''}
-  :{id:null,name:'',price:'',cat:(S.cats.indexOf(lastItemCat)>=0?lastItemCat:(curCat||S.cats[0])),recipe:[],margin:''};
+  :{id:null,name:'',price:'',cat:lastCatGuess(),recipe:[],margin:''};
  renderEdit();
 }
 function renderEdit(){
