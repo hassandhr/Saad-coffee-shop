@@ -1,5 +1,5 @@
 /* Keeps the app on the device so it opens with no internet. */
-var CACHE = 'kiosk-pos-v4';
+var CACHE = 'kiosk-pos-v5';
 var FILES = ['./', './index.html', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', function (e) {
