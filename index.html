@@ -90,6 +90,7 @@ td.r,th.r{text-align:right}
 tfoot td{font-weight:800;border-bottom:0}
 .itemrow{display:flex;align-items:center;gap:0.625rem;padding:0.625rem 0;border-bottom:1px solid var(--line)}
 .itemrow .n{flex:1;min-width:0}
+.sugs{display:flex;flex-wrap:wrap;gap:0.375rem;margin-top:0.5rem;max-height:6.5rem;overflow:auto}.sugs button{border:1px solid var(--line);background:var(--bg);color:var(--text);border-radius:62.4375rem;padding:0.4375rem 0.875rem;font-size:0.875rem;font-weight:600}.sugs button.on{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}.rsearch{width:100%;margin-bottom:0.375rem}.rline select[size]{height:auto}
 .chip{display:inline-block;background:var(--accent2);color:var(--accent);border-radius:62.4375rem;padding:0.375rem 0.75rem;margin:0 0.375rem 0.375rem 0;font-size:0.875rem;font-weight:600}
 .chip i{font-style:normal;margin-left:0.5rem;color:var(--bad);cursor:pointer;padding:0.25rem}
 .modal-bg{position:fixed;inset:0;background:var(--scrim);display:none;align-items:center;justify-content:center;padding:1rem;z-index:10}
@@ -128,7 +129,7 @@ tfoot td{font-weight:800;border-bottom:0}
 .boot{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:30;color:var(--mute);font-size:1rem}
 .sizebtn{border:1px solid var(--line);background:var(--bg);border-radius:.625rem;padding:.5rem .75rem;font-weight:700;font-size:1rem;color:var(--ink)}
 button.sync{border:0;background:transparent;padding:0;font:inherit;font-size:.75rem}
-.numpad{display:grid;grid-template-columns:minmax(5.25rem,1.7fr) repeat(10,minmax(0,1fr));gap:0.375rem;padding:0.5rem 1rem 0.625rem;border-top:1px solid var(--line);background:var(--card);flex-shrink:0}
+.numpad{display:grid;grid-template-columns:minmax(5.25rem,1.7fr) repeat(11,minmax(0,1fr));gap:0.375rem;padding:0.5rem 1rem 0.625rem;border-top:1px solid var(--line);background:var(--card);flex-shrink:0}
 .npk,.npq{height:3rem;border-radius:0.625rem;border:1px solid var(--line);background:var(--bg);font-size:1.25rem;font-weight:700;padding:0}
 .npk:active{background:var(--accent2)}
 .npq{font-size:0.9375rem;color:var(--mute);white-space:nowrap}
@@ -189,7 +190,7 @@ button.sync{border:0;background:transparent;padding:0;font:inherit;font-size:.75
      <div class="drows" id="discRows" hidden></div>
      <div class="total"><span>Total</span><span id="cartTotal">$0.00</span></div>
      <div id="cartLbp" style="text-align:right;font-weight:700;color:var(--accent);margin-bottom:0.625rem;font-size:1rem">0 LL</div>
-     <div class="cash"><span>Cash received</span><input id="cash" type="number" inputmode="decimal" step="0.01" placeholder="optional"></div>
+     <div class="cash"><span>Cash received (LL)</span><input id="cash" type="number" inputmode="numeric" step="1000" min="0" placeholder="optional, in LL"></div>
      <div class="cash" id="changeRow" hidden><span>Change due</span><b id="change" style="color:var(--ok);font-size:1.125rem"></b></div>
      <div class="act"><button class="btn sec" id="discBtn" disabled>Discount</button><button class="btn" id="checkout" style="flex:1" disabled>Checkout &amp; Invoice</button></div>
     </div>
@@ -262,6 +263,7 @@ function uid(){return Date.now().toString(36)+Math.random().toString(36).slice(2
 function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
 function money(n){return '$'+(Math.round(n*100)/100).toFixed(2)}
 function lbp(n,r){return Math.round(n*(r||S.rate||0)).toLocaleString('en-US')+' LL'}
+function fmtLL(n){return Math.round(n).toLocaleString('en-US')+' LL'}
 function fmtN(n){return String(Math.round(n*1000)/1000)}
 function num(v){var n=parseFloat(v);return isNaN(n)?0:n}
 function r2(n){return String(Math.round(n*100)/100)}
@@ -334,20 +336,26 @@ function showText(title,text,hint,fname,done){
 
 /* SALE */
 var qtyBuf='',disc=null;
-function qtyN(){return qtyBuf?parseInt(qtyBuf,10):1}
+function qtyN(){var v=parseFloat(qtyBuf);return v>0?v:1}
+function r3(n){return Math.round(n*1000)/1000}
 function updateNumpad(){var q=$('npq');if(!q)return;q.textContent=qtyBuf?'×'+qtyBuf+'  ✕':'×1';q.classList.toggle('set',!!qtyBuf)}
-function pressDigit(d){var b=(qtyBuf+d).replace(/^0+/,'');if(b.length>3)return;qtyBuf=b;updateNumpad()}
+function pressDigit(d){var b=qtyBuf;
+ if(d==='.'){if(b.indexOf('.')>=0)return;b=(b||'0')+'.'}else{if(b==='0')b='';b+=d}
+ var pr=b.split('.');if(pr[0].length>3||(pr[1]||'').length>2)return;
+ qtyBuf=b;updateNumpad()}
 function buildNumpad(){
  var h='<button class="npq" id="npq" aria-label="Quantity for the next item. Tap to reset"></button>';
- '1234567890'.split('').forEach(function(d){h+='<button class="npk" data-d="'+d+'">'+d+'</button>'});
+ '1234567890.'.split('').forEach(function(d){h+='<button class="npk" data-d="'+d+'">'+d+'</button>'});
  $('numpad').innerHTML=h;
  $('numpad').querySelectorAll('.npk').forEach(function(b){b.onclick=function(){pressDigit(b.dataset.d)}});
  $('npq').onclick=function(){qtyBuf='';updateNumpad()};
  updateNumpad();
 }
-function addUnits(id,n){cart[id]=(cart[id]||0)+n;for(var k=0;k<n;k++)cartOrder.push(id)}
+function addUnits(id,n){n=r3(n);cart[id]=r3((cart[id]||0)+n);var w=Math.floor(n+1e-9),f=r3(n-w),k;for(k=0;k<w;k++)cartOrder.push({id:id,q:1});if(f>0)cartOrder.push({id:id,q:f})}
+function dropAmt(id,q){cart[id]=r3((cart[id]||0)-q);if(cart[id]<=0.0005)delete cart[id]}
 function addUnit(id){addUnits(id,1)}
-function removeUnit(id){if(!cart[id])return;cart[id]--;if(cart[id]<=0)delete cart[id];var k=cartOrder.lastIndexOf(id);if(k>=0)cartOrder.splice(k,1)}
+function removeUnit(id){if(!cart[id])return;var k=-1,j;for(j=cartOrder.length-1;j>=0;j--)if(cartOrder[j].id===id){k=j;break}
+ if(k>=0){var q=cartOrder[k].q;cartOrder.splice(k,1);dropAmt(id,q)}else delete cart[id]}
 function stockLine(i){
  var cm=canMake(i);
  if(cm!==null)return cm<=0?'<span class="stk out">Out of stock</span>':'<span class="stk">'+cm+' can be made</span>';
@@ -362,7 +370,7 @@ function renderSale(){
  var list=S.items.filter(function(i){return i.cat===curCat&&i.kind==='sale'});
  $('grid').innerHTML=list.length?list.map(function(i){
   var q=cart[i.id]||0;
-  return '<button class="tile" data-id="'+i.id+'">'+(q?'<div class="badge">'+q+'</div>':'')+'<div><b>'+esc(i.name)+'</b>'+stockLine(i)+'</div><div><span>'+money(i.price)+'</span><small>'+lbp(i.price)+'</small></div></button>'}).join('')
+  return '<button class="tile" data-id="'+i.id+'">'+(q?'<div class="badge">'+fmtN(q)+'</div>':'')+'<div><b>'+esc(i.name)+'</b>'+stockLine(i)+'</div><div><span>'+money(i.price)+'</span><small>'+lbp(i.price)+'</small></div></button>'}).join('')
   :'<div class="empty">No items in this category yet. Open the <b>Items</b> tab to add some.</div>';
  $('grid').querySelectorAll('.tile').forEach(function(t){t.onclick=function(){
   var id=t.dataset.id,it=findItem(id);
@@ -413,7 +421,7 @@ function renderCart(){
  if(!ids.length)disc=null;
  $('lines').innerHTML=ids.length?ids.map(function(id){var it=findItem(id),q=cart[id];
   return '<div class="line"><div class="n"><div>'+esc(it.name)+'</div><small>'+money(it.price)+' each</small></div>'+
-  '<div class="qty"><button data-m="'+id+'">−</button><span>'+q+'</span><button data-p="'+id+'">+</button></div>'+
+  '<div class="qty"><button data-m="'+id+'">−</button><span>'+fmtN(q)+'</span><button data-p="'+id+'">+</button></div>'+
   '<div class="t">'+money(it.price*q)+'</div></div>'}).join(''):'<div class="empty" style="padding:1.25rem 0.5rem">Tap items to add them.</div>';
  $('lines').querySelectorAll('[data-m]').forEach(function(b){b.onclick=function(){removeUnit(b.dataset.m);renderSale()}});
  $('lines').querySelectorAll('[data-p]').forEach(function(b){b.onclick=function(){addUnit(b.dataset.p);renderSale()}});
@@ -422,11 +430,11 @@ function renderCart(){
  $('cartTotal').textContent=money(t);$('cartLbp').textContent=lbp(t);$('checkout').disabled=!ids.length;$('discBtn').disabled=!ids.length;updateChange();
 }
 function updateChange(){
- var c=parseFloat($('cash').value),t=cartTotal();
- if(!isNaN(c)&&c>0&&t>0){$('changeRow').hidden=false;$('change').textContent=c>=t?money(c-t)+' ('+lbp(c-t)+')':'Short '+money(t-c)}else $('changeRow').hidden=true;
+ var cl=parseFloat($('cash').value),t=cartTotal(),tl=Math.round(t*(S.rate||1));
+ if(!isNaN(cl)&&cl>0&&t>0){$('changeRow').hidden=false;$('change').textContent=cl>=tl?fmtLL(cl-tl):'Short '+fmtLL(tl-cl)}else $('changeRow').hidden=true;
 }
 $('cash').oninput=updateChange;
-$('clearLast').onclick=function(){var id=cartOrder[cartOrder.length-1];if(id)removeUnit(id);renderSale()};
+$('clearLast').onclick=function(){var e=cartOrder.pop();if(e)dropAmt(e.id,e.q);renderSale()};
 $('clearAll').onclick=function(){cart={};cartOrder=[];disc=null;qtyBuf='';updateNumpad();$('cash').value='';renderSale()};
 $('discBtn').onclick=discountDialog;
 $('checkout').onclick=function(){
@@ -437,10 +445,10 @@ $('checkout').onclick=function(){
  }}
  if(!lines.length)return;
  var total=0;lines.forEach(function(l){total+=l.price*l.qty});
- var cash=parseFloat($('cash').value);
+ var cashL=parseFloat($('cash').value);
  var da=Math.min(discAmt(),total);
  S.counter++;
- var sale={id:uid(),no:S.counter,ts:Date.now(),items:lines,sub:Math.round(total*100)/100,total:Math.round((total-da)*100)/100,discount:(disc&&da>0)?{type:disc.type,value:disc.value,amount:da}:null,rate:S.rate,cash:(!isNaN(cash)&&cash>0)?cash:null,void:false};
+ var sale={id:uid(),no:S.counter,ts:Date.now(),items:lines,sub:Math.round(total*100)/100,total:Math.round((total-da)*100)/100,discount:(disc&&da>0)?{type:disc.type,value:disc.value,amount:da}:null,rate:S.rate,cash:(!isNaN(cashL)&&cashL>0)?Math.round(cashL/(S.rate||1)*100)/100:null,cashLbp:(!isNaN(cashL)&&cashL>0)?Math.round(cashL):null,void:false};
  var warn=[];
  lines.forEach(function(l){
   if(l.used){l.used.forEach(function(u){var g=findItem(u.id);if(g&&g.track){g.stock=Math.round((g.stock-u.qty)*1000)/1000;if(g.stock<=0&&warn.indexOf(g.name)<0)warn.push(g.name)}})}
@@ -455,9 +463,9 @@ $('checkout').onclick=function(){
 /* INVOICE */
 function receiptHTML(s){
  var h='<div class="receipt"><h2>'+esc(S.store||'Kiosk')+'</h2><div class="c">Invoice #'+pad(s.no,4)+'<br>'+fmtDT(s.ts)+'</div><hr>';
- s.items.forEach(function(l){h+='<div class="l"><span>'+l.qty+' × '+esc(l.name)+'</span><span>'+money(l.price*l.qty)+'</span></div>'+(l.qty>1?'<div class="l sub"><span>&nbsp;&nbsp;@ '+money(l.price)+'</span><span></span></div>':'')});
+ s.items.forEach(function(l){h+='<div class="l"><span>'+fmtN(l.qty)+' × '+esc(l.name)+'</span><span>'+money(l.price*l.qty)+'</span></div>'+(l.qty>1?'<div class="l sub"><span>&nbsp;&nbsp;@ '+money(l.price)+'</span><span></span></div>':'')});
  h+='<hr>'+(s.discount&&s.discount.amount>0?'<div class="l"><span>Subtotal</span><span>'+money(s.sub!==undefined?s.sub:s.total+s.discount.amount)+'</span></div><div class="l"><span>Discount ('+esc(discLabel(s.discount))+')</span><span>−'+money(s.discount.amount)+'</span></div>':'')+'<div class="l tot"><span>TOTAL</span><span>'+money(s.total)+'</span></div><div class="l tot"><span>TOTAL (LBP)</span><span>'+lbp(s.total,s.rate)+'</span></div><div class="l sub"><span>Rate: 1 USD = '+Number(s.rate||S.rate).toLocaleString('en-US')+' LL</span><span></span></div>';
- if(s.cash)h+='<div class="l"><span>Cash</span><span>'+money(s.cash)+'</span></div><div class="l"><span>Change</span><span>'+money(Math.max(0,s.cash-s.total))+'</span></div>';
+ if(s.cashLbp){h+='<div class="l"><span>Cash received</span><span>'+fmtLL(s.cashLbp)+'</span></div><div class="l"><span>Change</span><span>'+fmtLL(Math.max(0,s.cashLbp-Math.round(s.total*(s.rate||1))))+'</span></div>'}else if(s.cash)h+='<div class="l"><span>Cash</span><span>'+money(s.cash)+'</span></div><div class="l"><span>Change</span><span>'+money(Math.max(0,s.cash-s.total))+'</span></div>';
  if(s.void)h+='<hr><div class="c void">*** VOIDED ***</div>';
  h+='<hr><div class="c">Thank you!</div></div>';return h;
 }
@@ -490,7 +498,7 @@ function editStock(id){
  var buy=it?buyU(it):'kg',unit=it?it.unit:'kg',fac=it?fct(it):1;
  openModal('<h3>'+(it?'Edit stock item':'New stock item')+'</h3>'+
  '<div class="f"><label for="sName">Name</label><input id="sName" value="'+esc(it?it.name:'')+'" placeholder="e.g. Water"></div>'+
- '<div class="f"><label for="sSup">Supplier (optional)</label><input id="sSup" value="'+esc(it?(it.supplier||''):'')+'" placeholder="e.g. Al Amal Trading"></div>'+
+ '<div class="f"><label for="sSup">Supplier (optional)</label><input id="sSup" value="'+esc(it?(it.supplier||''):'')+'" placeholder="Type, or tap a saved supplier below" autocomplete="off"><div class="sugs" id="sSupBox" hidden></div></div>'+
  '<div class="row" style="margin-bottom:0.75rem"><div class="f" style="flex:1;min-width:8.125rem;margin:0"><label for="sBuy">Buying unit</label><select id="sBuy">'+unitOptHtml(buy)+'</select></div>'+
  '<div class="f" style="flex:1;min-width:8.125rem;margin:0"><label for="sUnit">Recipe unit</label><select id="sUnit">'+unitOptHtml(unit)+'</select></div></div>'+
  '<div class="f" id="sConv"><label for="sFac"><span id="sConvL"></span></label><input id="sFac" type="number" inputmode="decimal" step="any" min="0" value="'+fac+'"></div>'+
@@ -509,6 +517,7 @@ function editStock(id){
  }
  labels();
  $('sBuy').onchange=unitsChanged;$('sUnit').onchange=unitsChanged;
+ supPicker('sSup');
  $('sCancel').onclick=closeModal;
  $('sSave').onclick=function(){
   var n=$('sName').value.trim(),b=$('sBuy').value,u=$('sUnit').value,f=(b===u)?1:num($('sFac').value);
@@ -601,7 +610,7 @@ function itemOptions(sel){
 }
 function renderPurchase(){
  var d=pDraft;
- var h='<h3>New purchase invoice</h3><div class="row" style="margin-bottom:0.75rem"><input id="pSup" placeholder="Supplier (optional)" value="'+esc(d.supplier)+'" style="flex:1;min-width:9.375rem"><input type="date" id="pDate" value="'+d.date+'"></div>';
+ var h='<h3>New purchase invoice</h3><div class="row" style="margin-bottom:0.75rem"><input id="pSup" placeholder="Supplier (optional)" autocomplete="off" value="'+esc(d.supplier)+'" style="flex:1;min-width:9.375rem"><input type="date" id="pDate" value="'+d.date+'"></div><div class="sugs" id="pSupBox" hidden style="margin:-0.375rem 0 0.75rem"></div>';
  d.lines.forEach(function(l,i){
   h+='<div class="pline"><div class="row"><select id="pItem'+i+'">'+itemOptions(l.itemId)+'</select><select id="pun'+i+'" aria-label="Unit" style="flex:none;width:5.75rem">'+unitOpts(l)+'</select>'+(d.lines.length>1?'<button class="btn bad sm" data-pdel="'+i+'">✕</button>':'')+'</div>'+
   '<div class="pgrid"><div class="f"><label for="pq'+i+'">Quantity <span id="pu'+i+'"></span></label><input id="pq'+i+'" type="number" inputmode="decimal" step="any" min="0" value="'+esc(l.qty)+'"></div>'+
@@ -617,7 +626,7 @@ function renderPurchase(){
 function ptotal(){var t=0;pDraft.lines.forEach(function(l){t+=num(l.total)});$('pTotal').textContent=money(t);$('pTotalL').textContent=lbp(t)}
 function wirePurchase(){
  var d=pDraft;
- $('pSup').oninput=function(){d.supplier=this.value};
+ $('pSup').oninput=function(){d.supplier=this.value};supPicker('pSup');
  $('pDate').onchange=function(){d.date=this.value||today()};
  $('pCancel').onclick=closeModal;
  $('pAdd').onclick=function(){d.lines.push(newLine());renderPurchase()};
@@ -692,10 +701,10 @@ function renderReport(){
  S.purchases.forEach(function(p){if(inRange(p.ts,r))spent+=p.total});
  valid.forEach(function(s){var rt=s.rate||S.rate;var fac=(s.discount&&s.sub>0)?s.total/s.sub:1;if(s.discount)discTot+=(s.sub-s.total);s.items.forEach(function(l){
   var la=l.price*l.qty*fac;
-  var a=byCat[l.cat]||(byCat[l.cat]={qty:0,amt:0,lbp:0});a.qty+=l.qty;a.amt+=la;a.lbp+=la*rt;
-  var k=l.cat+'|'+l.name;var b=byItem[k]||(byItem[k]={cat:l.cat,name:l.name,qty:0,amt:0});b.qty+=l.qty;b.amt+=la;
+  var a=byCat[l.cat]||(byCat[l.cat]={qty:0,amt:0,lbp:0});a.qty=r3(a.qty+l.qty);a.amt+=la;a.lbp+=la*rt;
+  var k=l.cat+'|'+l.name;var b=byItem[k]||(byItem[k]={cat:l.cat,name:l.name,qty:0,amt:0});b.qty=r3(b.qty+l.qty);b.amt+=la;
   if(l.cost>0)profit+=la-l.cost*l.qty;
-  units+=l.qty});grand+=s.total;grandL+=s.total*rt});
+  units=r3(units+l.qty)});grand+=s.total;grandL+=s.total*rt});
  var cats=S.cats.slice();Object.keys(byCat).forEach(function(c){if(cats.indexOf(c)<0)cats.push(c)});
  var first=sales.length?sales[0].ts:null;
  var dayNo=r.open?S.days.length+1:r.d.no;
@@ -785,13 +794,32 @@ function restoreDialog(){
 }
 var eDraft=null;
 function recCost(d){var t=0;d.recipe.forEach(function(l){var g=findItem(l.itemId);if(g)t+=num(l.qty)*(g.cost||0)});return t}
+function allSuppliers(){var m={};S.items.forEach(function(i){if(i.supplier&&i.supplier.trim())m[i.supplier.trim()]=1});S.purchases.forEach(function(p){if(p.supplier&&p.supplier.trim())m[p.supplier.trim()]=1});return Object.keys(m).sort(function(a,b){return a.localeCompare(b)})}
+function supPicker(inId){
+ var inp=$(inId),box=$(inId+'Box');if(!inp||!box)return;
+ var all=allSuppliers();
+ function draw(){
+  var q=inp.value.trim().toLowerCase();
+  var l=all.filter(function(n){return !q||n.toLowerCase().indexOf(q)>=0});
+  box.hidden=!all.length;
+  box.innerHTML=all.length?(l.length?l.map(function(n,i){return '<button type="button" data-i="'+i+'"'+(n.toLowerCase()===q?' class="on"':'')+'>'+esc(n)+'</button>'}).join(''):'<span class="note" style="margin:0">New supplier. It will be saved with this item.</span>'):'';
+  box.querySelectorAll('button').forEach(function(b){b.onclick=function(){inp.value=l[+b.dataset.i];if(inp.oninput)inp.oninput();draw()}});
+ }
+ inp.addEventListener('input',draw);draw();
+}
 function ingCands(){return S.items.filter(isBuyable).sort(function(a,b){return a.name.localeCompare(b.name)})}
-function ingredientOptions(sel){
- return ingCands().map(function(i){return '<option value="'+i.id+'"'+(i.id===sel?' selected':'')+'>'+esc(i.name)+(i.supplier?' · '+esc(i.supplier):'')+' (recipe unit '+esc(i.unit)+(i.cost>0?', '+money(i.cost*fct(i))+'/'+esc(buyU(i)):'')+')</option>'}).join('');
+function ingMatches(q){
+ var w=(q||'').toLowerCase().split(/\s+/).filter(Boolean);
+ return ingCands().filter(function(i){var t=(i.name+' '+(i.supplier||'')).toLowerCase();return w.every(function(x){return t.indexOf(x)>=0})});
+}
+function ingredientOptions(sel,q){
+ var list=ingMatches(q);
+ if(sel&&!list.some(function(i){return i.id===sel})){var cur=findItem(sel);if(cur)list.unshift(cur)}
+ return list.map(function(i){return '<option value="'+i.id+'"'+(i.id===sel?' selected':'')+'>'+esc(i.name)+(i.supplier?' · '+esc(i.supplier):'')+' (recipe unit '+esc(i.unit)+(i.cost>0?', '+money(i.cost*fct(i))+'/'+esc(buyU(i)):'')+')</option>'}).join('');
 }
 function editItem(id){
  var it=id?findItem(id):null;
- eDraft=it?{id:it.id,name:it.name,price:String(it.price),cat:it.cat,recipe:(it.recipe||[]).map(function(r){return {itemId:r.itemId,qty:String(r.qty)}}),margin:''}
+ eDraft=it?{id:it.id,name:it.name,price:String(it.price),cat:it.cat,recipe:(it.recipe||[]).map(function(r){return {itemId:r.itemId,qty:String(r.qty),q:''}}),margin:''}
   :{id:null,name:'',price:'',cat:curCat||S.cats[0],recipe:[],margin:''};
  renderEdit();
 }
@@ -807,7 +835,7 @@ function renderEdit(){
  }else{
   d.recipe.forEach(function(l,i){
    var g=findItem(l.itemId);
-   h+='<div class="rline"><select id="rI'+i+'" aria-label="Stock item">'+ingredientOptions(l.itemId)+'</select><input id="rQ'+i+'" aria-label="Quantity" type="number" inputmode="decimal" step="any" min="0" value="'+esc(l.qty)+'" placeholder="Qty"><span class="ru" id="rU'+i+'">'+(g?esc(g.unit):'')+'</span><button class="btn bad sm" data-rdel="'+i+'" aria-label="Remove">✕</button></div>';
+   h+='<input class="rsearch" id="rS'+i+'" type="search" aria-label="Search stock items" placeholder="🔍 Search stock items (type a name)" value="'+esc(l.q||'')+'"><div class="rline"><select id="rI'+i+'" aria-label="Stock item"'+(l.q?' size="'+Math.max(2,Math.min(5,ingMatches(l.q).length))+'"':'')+'>'+ingredientOptions(l.itemId,l.q)+'</select><input id="rQ'+i+'" aria-label="Quantity" type="number" inputmode="decimal" step="any" min="0" value="'+esc(l.qty)+'" placeholder="Qty"><span class="ru" id="rU'+i+'">'+(g?esc(g.unit):'')+'</span><button class="btn bad sm" data-rdel="'+i+'" aria-label="Remove">✕</button></div>';
   });
   h+='<button class="btn sec sm" id="rAdd">+ Add from stock</button>';
  }
@@ -833,11 +861,18 @@ function wireEdit(){
  $('iPrice').oninput=function(){d.price=this.value;recInfo()};
  $('iCat').onchange=function(){d.cat=this.value};
  d.recipe.forEach(function(l,i){
+  $('rS'+i).oninput=function(){
+   l.q=this.value;var sel=$('rI'+i),m=ingMatches(l.q);
+   if(l.q&&m.length&&!m.some(function(x){return x.id===l.itemId})){l.itemId=m[0].id;var g0=findItem(l.itemId);$('rU'+i).textContent=g0?g0.unit:'';recInfo()}
+   sel.innerHTML=ingredientOptions(l.itemId,l.q);
+   if(l.q)sel.setAttribute('size',Math.max(2,Math.min(5,sel.options.length)));else sel.removeAttribute('size');
+   if(l.q&&!m.length)toast('No stock item matches “'+l.q+'”');
+  };
   $('rI'+i).onchange=function(){l.itemId=this.value;var g=findItem(l.itemId);$('rU'+i).textContent=g?g.unit:'';recInfo()};
   $('rQ'+i).oninput=function(){l.qty=this.value;recInfo()};
  });
  $('modal').querySelectorAll('[data-rdel]').forEach(function(b){b.onclick=function(){d.recipe.splice(+b.dataset.rdel,1);renderEdit()}});
- if($('rAdd'))$('rAdd').onclick=function(){var c=ingCands()[0];d.recipe.push({itemId:c?c.id:'',qty:''});renderEdit()};
+ if($('rAdd'))$('rAdd').onclick=function(){var c=ingCands()[0];d.recipe.push({itemId:c?c.id:'',qty:'',q:''});renderEdit()};
  if($('rM')){
   $('rM').oninput=function(){d.margin=this.value};
   $('rSug').onclick=function(){
@@ -860,7 +895,7 @@ function wireEdit(){
  };
  if($('iDel'))$('iDel').onclick=function(){
   var it=findItem(d.id);if(!it)return;
-  ask('Delete "'+it.name+'"? Past invoices are not affected.','Delete',function(){S.items=S.items.filter(function(x){return x.id!==it.id});delete cart[it.id];cartOrder=cartOrder.filter(function(x){return x!==it.id});save();closeModal();refresh()},function(){editItem(it.id)});
+  ask('Delete "'+it.name+'"? Past invoices are not affected.','Delete',function(){S.items=S.items.filter(function(x){return x.id!==it.id});delete cart[it.id];cartOrder=cartOrder.filter(function(x){return x.id!==it.id});save();closeModal();refresh()},function(){editItem(it.id)});
  };
 }
 load();
